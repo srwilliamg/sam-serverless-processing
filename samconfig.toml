@@ -1,4 +1,15 @@
 version = 0.1
+[test.deploy.parameters]
+stack_name = "event-driven"
+resolve_s3 = true
+s3_prefix = "event-driven"
+region = "us-east-1"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM"
+disable_rollback = false
+image_repositories = []
+parameter_overrides = "Environment=test"
+
 [default.deploy.parameters]
 stack_name = "event-driven"
 resolve_s3 = true
@@ -6,14 +17,17 @@ s3_prefix = "event-driven"
 region = "us-east-1"
 confirm_changeset = false
 capabilities = "CAPABILITY_IAM"
-disable_rollback = true
+disable_rollback = false
 image_repositories = []
+parameter_overrides = "Environment=dev"
 
 [dev.deploy.parameters]
 stack_name = "event-driven"
 resolve_s3 = true
 s3_prefix = "event-driven"
 region = "us-east-1"
+confirm_changeset = false
 capabilities = "CAPABILITY_IAM"
-disable_rollback = true
+disable_rollback = false
 image_repositories = []
+parameter_overrides = "Environment=dev"

@@ -1,5 +1,10 @@
 import { DeleteMessageCommandOutput, SendMessageRequest, SendMessageResult } from '@aws-sdk/client-sqs';
-import { PublishCommandInput, PublishCommandOutput } from '@aws-sdk/client-sns';
+import {
+  ListTopicsCommandInput,
+  ListTopicsCommandOutput,
+  PublishCommandInput,
+  PublishCommandOutput,
+} from '@aws-sdk/client-sns';
 
 import { Context } from 'vm';
 import { resourceFactory } from '../utils/resource-factory';
@@ -11,6 +16,7 @@ export interface IQueueService {
 
 export interface INotificationService {
   publish(data: PublishCommandInput): Promise<PublishCommandOutput | null>;
+  list(data: ListTopicsCommandInput): Promise<ListTopicsCommandOutput | null>;
 }
 export type IResource = IQueueService | INotificationService;
 export type ExtractProperties<T> = T extends Record<infer K, () => any> ? K : never;

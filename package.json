@@ -4,7 +4,12 @@
   "scripts": {
     "format": "npx prettier . --write",
     "lint": "eslint '*.ts' --quiet --fix",
-    "compile": "tsc"
+    "compile": "tsc",
+    "validate": "sam validate --lint",
+    "build": "sam build",
+    "deploy": "sam deploy --config-env 'dev' --parameter-overrides Stage=dev",
+    "deploy-test": "sam deploy --config-env 'test' --parameter-overrides Stage=test",
+    "deploy-prod": "sam deploy --config-env 'prod' --parameter-overrides Stage=prod"
   },
   "author": "srwilliamg@gmail.com",
   "license": "ISC",

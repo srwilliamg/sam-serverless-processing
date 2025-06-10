@@ -9,7 +9,8 @@ export const processEndpoint: IHandler = async (
   _,
   { notificationService },
 ): Promise<APIGatewayProxyResult> => {
-  console.log('🚀 ~ notificationService:', process.env);
+  const topic = process.env.SNS_TOPIC_ARN || undefined;
+  console.log('🚀 ~ notificationService:', topic);
 
   if (!notificationService) {
     throw new Error('Notification service is not defined');
@@ -19,13 +20,13 @@ export const processEndpoint: IHandler = async (
     const responseSNS = await notificationService.publish({
       Subject: 'Notification from API Endpoint',
       Message: 'Hello from the notification service!',
-      TopicArn: process.env.SNS_TOPIC_ARN || '',
+      TopicArn: topic,
     });
-    console.log('🚀 ~ responseSNS:', responseSNS);
+
     return {
       statusCode: 200,
       body: JSON.stringify({
-        message: 'hello world',
+        message: responseSNS,
       }),
     };
   } catch (err) {

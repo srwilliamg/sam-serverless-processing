@@ -11,8 +11,14 @@ Globals:
       LogFormat: JSON
     Environment:
       Variables:
-        STAGE: dev
+        STAGE: !Sub ${Stage}
         REGION: us-east-1
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    Description: API Gateway stage name
 
 Resources:
   ReceiverQueue:
@@ -20,9 +26,9 @@ Resources:
     UpdateReplacePolicy: Delete
     Type: AWS::SQS::Queue
     Properties:
+      QueueName: !Sub ReceiverQueue-${Stage}
       ReceiveMessageWaitTimeSeconds: 0
       MessageRetentionPeriod: 60
-      QueueName: ReceiverQueue
       VisibilityTimeout: 30
       DelaySeconds: 0
       RedrivePolicy:
@@ -34,38 +40,34 @@ Resources:
     UpdateReplacePolicy: Delete
     Type: AWS::SQS::Queue
     Properties:
+      QueueName: !Sub DeadLetterQueue-${Stage}
       MessageRetentionPeriod: 1209600 # 14 days
-      QueueName: DeadLetterQueue
       VisibilityTimeout: 30
       DelaySeconds: 0
 
-  MessageProcessorSQS:
-    Type: AWS::Serverless::Function
-    Metadata: # Manage esbuild properties
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: true
-        Target: es2020
-        Sourcemap: true
-        EntryPoints:
-          - src/handlers/sqs-message-processor/index.ts
+  # -------------------------------------#-------------------------------------
+
+  SnsToSqsPolicy:
+    Type: AWS::SQS::QueuePolicy
     Properties:
-      Handler: src/handlers/sqs-message-processor/index.handler
-      Environment:
-        Variables:
-          QUEUE_URL: !Ref ReceiverQueue
-          DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
-      Events:
-        MySQSEvent:
-          Type: SQS
-          Properties:
-            Queue: !GetAtt ReceiverQueue.Arn
-            BatchSize: 10
+      Queues:
+        - !Ref ReceiverQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt ReceiverQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref TopicCalledWasMade
 
   TopicCalledWasMade:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: ACallHasBeenMade
+      TopicName: !Sub TopicCalledWasMade-${Stage}
       DisplayName: A Call Has Been Made
 
   QueueSubscriberToTopic:
@@ -86,24 +88,84 @@ Resources:
   # FilterPolicy:
   # RawMessageDelivery:
 
-  SnsToSqsPolicy:
-    Type: AWS::SQS::QueuePolicy
+  # -------------------------------------#-------------------------------------
+
+  ApiGatewayReceiver:
+    Type: AWS::Serverless::Api
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
-      Queues:
-        - !Ref ReceiverQueue
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: sns.amazonaws.com
-            Action: sqs:SendMessage
-            Resource: !GetAtt ReceiverQueue.Arn
-            Condition:
-              ArnEquals:
-                aws:SourceArn: !Ref TopicCalledWasMade
+      Name: !Sub ApiGatewayReceiver-${Stage}
+      Description: API Gateway for receiving messages
+      StageName: !Sub ${Stage}
+      Auth:
+        ApiKeyRequired: true
+      Cors:
+        AllowMethods: "'GET,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+
+  ApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      Name: !Sub ApiKey-${Stage}
+      Enabled: true
+      StageKeys:
+        - RestApiId: !Ref ApiGatewayReceiver
+          StageName: !Ref ApiGatewayReceiver.Stage
+      Description: API Key for accessing the API
+
+  UsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    Properties:
+      Description: Usage plan for the API
+      ApiStages:
+        - ApiId: !Ref ApiGatewayReceiver
+          Stage: !Ref ApiGatewayReceiver.Stage
+      Quota:
+        Limit: 1000
+        Period: MONTH
+      Throttle:
+        BurstLimit: 20
+        RateLimit: 10
+
+  UsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref ApiKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref UsagePlan
+
+  # -------------------------------------#-------------------------------------
+
+  MessageProcessorFunction:
+    FunctionName: !Sub MessageProcessorFunction-${Stage}
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2020
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/sqs-message-processor/index.ts
+    Properties:
+      Handler: src/handlers/sqs-message-processor/index.handler
+      Environment:
+        Variables:
+          QUEUE_URL: !Ref ReceiverQueue
+          DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
+      Events:
+        MySQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ReceiverQueue.Arn
+            BatchSize: 10
 
   ReceiverFunction:
+    FunctionName: !Sub ReceiverFunction-${Stage}
     Type: AWS::Serverless::Function
     Metadata:
       BuildMethod: esbuild
@@ -119,17 +181,22 @@ Resources:
         Variables:
           SNS_TOPIC_ARN: !Ref TopicCalledWasMade
       Events:
-        ApiEvent:
+        ApiKey:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayReceiver
             Path: /
             Method: get
+            Auth:
+              ApiKeyRequired: true
       Policies:
         - AWSLambdaSQSQueueExecutionRole
         - Statement:
             - Effect: Allow
               Action: sns:Publish
               Resource: !Ref TopicCalledWasMade
+
+  # -------------------------------------#-------------------------------------
 
 Outputs:
   SqsQueueArn:
@@ -138,9 +205,15 @@ Outputs:
   SnsTopicArn:
     Description: ARN of the SNS Topic
     Value: !Ref TopicCalledWasMade
-  MessageProcessorSQSArn:
-    Description: ARN of the MessageProcessorSQS Function
-    Value: !GetAtt MessageProcessorSQS.Arn
+  MessageProcessorFunctionArn:
+    Description: ARN of the MessageProcessorFunction Function
+    Value: !GetAtt MessageProcessorFunction.Arn
   ReceiverFunctionArn:
     Description: ARN of the ReceiverFunction Function
     Value: !GetAtt ReceiverFunction.Arn
+  ApiKey:
+    Description: API Key for accessing the API
+    Value: !Ref ApiKey
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${ApiGatewayReceiver}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/"
