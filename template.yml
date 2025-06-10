@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: SQS to Lambda to SNS with SAM
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Timeout: 30
+    CodeUri: ./
+    LoggingConfig:
+      LogFormat: JSON
+    Environment:
+      Variables:
+        STAGE: dev
+        REGION: us-east-1
+
+Resources:
+  ReceiverQueue:
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Type: AWS::SQS::Queue
+    Properties:
+      ReceiveMessageWaitTimeSeconds: 0
+      MessageRetentionPeriod: 60
+      QueueName: ReceiverQueue
+      VisibilityTimeout: 30
+      DelaySeconds: 0
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  DeadLetterQueue:
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600 # 14 days
+      QueueName: DeadLetterQueue
+      VisibilityTimeout: 30
+      DelaySeconds: 0
+
+  MessageProcessorSQS:
+    Type: AWS::Serverless::Function
+    Metadata: # Manage esbuild properties
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2020
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/sqs-message-processor/index.ts
+    Properties:
+      Handler: src/handlers/sqs-message-processor/index.handler
+      Environment:
+        Variables:
+          QUEUE_URL: !Ref ReceiverQueue
+          DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
+      Events:
+        MySQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ReceiverQueue.Arn
+            BatchSize: 10
+
+  TopicCalledWasMade:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: ACallHasBeenMade
+      DisplayName: A Call Has Been Made
+
+  QueueSubscriberToTopic:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref TopicCalledWasMade
+      Protocol: sqs
+      Endpoint: !GetAtt ReceiverQueue.Arn
+      # RawMessageDelivery:
+
+  # LambdaSusbriberToTopic:
+  #   Type: AWS::SNS::Subscription
+  #   Properties:
+  #     TopicArn: !Ref TopicCalledWasMade
+  #     Protocol: lambda
+  #     Endpoint: !GetAtt ReceiverFunction.Arn
+  # DeliveryPolicy:
+  # FilterPolicy:
+  # RawMessageDelivery:
+
+  SnsToSqsPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref ReceiverQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt ReceiverQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref TopicCalledWasMade
+
+  ReceiverFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2020
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/receiver/index.ts
+    Properties:
+      Handler: src/handlers/receiver/index.handler
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref TopicCalledWasMade
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /
+            Method: get
+      Policies:
+        - AWSLambdaSQSQueueExecutionRole
+        - Statement:
+            - Effect: Allow
+              Action: sns:Publish
+              Resource: !Ref TopicCalledWasMade
+
+Outputs:
+  SqsQueueArn:
+    Description: ARN of the SQS Queue
+    Value: !GetAtt ReceiverQueue.Arn
+  SnsTopicArn:
+    Description: ARN of the SNS Topic
+    Value: !Ref TopicCalledWasMade
+  MessageProcessorSQSArn:
+    Description: ARN of the MessageProcessorSQS Function
+    Value: !GetAtt MessageProcessorSQS.Arn
+  ReceiverFunctionArn:
+    Description: ARN of the ReceiverFunction Function
+    Value: !GetAtt ReceiverFunction.Arn

@@ -1,0 +1,26 @@
+{
+  "name": "serverless-arch",
+  "version": "1.0.0",
+  "scripts": {
+    "format": "npx prettier . --write",
+    "lint": "eslint '*.ts' --quiet --fix",
+    "compile": "tsc"
+  },
+  "author": "srwilliamg@gmail.com",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@aws-sdk/client-sns": "^3.826.0",
+    "@aws-sdk/client-sqs": "^3.826.0",
+    "@types/aws-lambda": "^8.10.149",
+    "eslint": "^9.28.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.28.0",
+    "@types/node": "^22.15.30",
+    "esbuild": "0.25.5",
+    "globals": "^16.2.0",
+    "prettier": "3.5.3",
+    "typescript-eslint": "^8.34.0"
+  }
+}

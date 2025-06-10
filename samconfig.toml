@@ -1,0 +1,19 @@
+version = 0.1
+[default.deploy.parameters]
+stack_name = "event-driven"
+resolve_s3 = true
+s3_prefix = "event-driven"
+region = "us-east-1"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+image_repositories = []
+
+[dev.deploy.parameters]
+stack_name = "event-driven"
+resolve_s3 = true
+s3_prefix = "event-driven"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+image_repositories = []
