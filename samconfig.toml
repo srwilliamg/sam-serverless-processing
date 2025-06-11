@@ -1,6 +1,6 @@
 version = 0.1
 [test.deploy.parameters]
-stack_name = "event-driven"
+stack_name = "event-driven-test"
 resolve_s3 = true
 s3_prefix = "event-driven"
 region = "us-east-1"
@@ -11,7 +11,7 @@ image_repositories = []
 parameter_overrides = "Environment=test"
 
 [default.deploy.parameters]
-stack_name = "event-driven"
+stack_name = "event-driven-default"
 resolve_s3 = true
 s3_prefix = "event-driven"
 region = "us-east-1"

@@ -5,7 +5,7 @@ Description: SQS to Lambda to SNS with SAM
 Globals:
   Function:
     Runtime: nodejs22.x
-    Timeout: 30
+    Timeout: 5
     CodeUri: ./
     LoggingConfig:
       LogFormat: JSON
@@ -19,6 +19,27 @@ Parameters:
     Type: String
     Default: dev
     Description: API Gateway stage name
+  VpcID:
+    Type: String
+    Description: VPC ID
+  Subnet1:
+    Type: String
+    Description: subnet1
+  Subnet2:
+    Type: String
+    Description: subnet2
+  DBUser:
+    Type: String
+    Default: dev-user
+    Description: RDS database username
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: RDS database password
+  DBName:
+    Type: String
+    Default: postgres
+    Description: RDS database name
 
 Resources:
   ReceiverQueue:
@@ -167,6 +188,7 @@ Resources:
   ReceiverFunction:
     FunctionName: !Sub ReceiverFunction-${Stage}
     Type: AWS::Serverless::Function
+    memorySize: 128
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -179,6 +201,11 @@ Resources:
       Handler: src/handlers/receiver/index.handler
       Environment:
         Variables:
+          DB_HOST: !GetAtt rdsDBInstance.Endpoint.Address
+          DB_PORT: !GetAtt rdsDBInstance.Endpoint.Port
+          DB_NAME: !Ref DBName
+          DB_USER: !Ref DBUser
+          DB_PASSWORD: !Ref DBPassword
           SNS_TOPIC_ARN: !Ref TopicCalledWasMade
       Events:
         ApiKey:
@@ -195,8 +222,87 @@ Resources:
             - Effect: Allow
               Action: sns:Publish
               Resource: !Ref TopicCalledWasMade
+        - AWSLambdaVPCAccessExecutionRole
+        - Statement:
+            - Effect: Allow
+              Action:
+                - rds:*
+              Resource: !Sub arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:*
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref Subnet1
+          - !Ref Subnet2
 
   # -------------------------------------#-------------------------------------
+
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Lambda
+      VpcId: !Ref VpcID
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  SNSEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VpcID
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.sns
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref Subnet1
+        - !Ref Subnet2
+      SecurityGroupIds:
+        - !Ref LambdaSecurityGroup
+      PrivateDnsEnabled: true
+
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS
+      SubnetIds:
+        - !Ref Subnet1
+        - !Ref Subnet2
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS
+      VpcId: !Ref VpcID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+
+  rdsDBInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BackupRetentionPeriod: 0
+      AllocatedStorage: 20
+      DBInstanceClass: db.t3.micro
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      DBInstanceIdentifier: postgres-db
+      DBName: postgres
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      # DBSecurityGroups:
+      #   - !Ref RDSSecurityGroup
+      Engine: postgres
+      EngineVersion: "17.5"
+      MasterUsername: !Sub DBUser
+      MasterUserPassword: !Sub DBPassword
+      PubliclyAccessible: false
+      StorageEncrypted: false
 
 Outputs:
   SqsQueueArn:
